@@ -1,11 +1,19 @@
 # Claude Desktop 简体中文语言包
-## 应该是全网深度校验独一份 - 2026-05-30 Claude 1.9659.2 (390d6c) 2026-05-28T21:50:01.000Z
+## Windows 已验证：Claude Desktop 6.2
 
 为 Claude Desktop（Windows / macOS）界面添加简体中文支持。
 
-本仓库由 [LifeActor](https://github.com/LifeActor) 在 [Pheo Hu](https://github.com/pheohu-42/Claude_zh-CN_LanguagePack) 的派生版本基础上迭代维护，原始语言包由 [RICK](https://linux.do/u/lbls888) 创建（[原帖](https://linux.do/t/topic/2040184)）。新增了基于 AI 的翻译工具链，支持对全量界面文案进行增量翻译与质量检查。
+本仓库基于 [LifeActor](https://github.com/LifeActor) 维护的版本继续适配新版 Claude Desktop；LifeActor 版本基于 [Pheo Hu](https://github.com/pheohu-42/Claude_zh-CN_LanguagePack) 的派生版本迭代，原始语言包由 [RICK](https://linux.do/u/lbls888) 创建（[原帖](https://linux.do/t/topic/2040184)）。本项目保留原许可与致谢，仅供个人学习使用。
 
 <img width="75%" alt="image" src="https://github.com/user-attachments/assets/1b29619a-2b95-4968-b230-36c170627fc7" />
+
+## 版本说明
+
+- 当前仓库已在 **Windows Claude Desktop 6.2** 上验证。
+- 说明文档已更新为 Claude Desktop 6.2 适配状态，便于向上游提交 PR。
+- Windows 安装脚本已兼容新版 Claude 前端：语言白名单可能不再位于 `index-*.js`，脚本会扫描 `ion-dist/assets/v1/*.js` 并自动注册 `zh-CN`。
+- Windows 配置路径已兼容新版 `Claude` / `Claude-3p` 本地配置目录。
+- Claude Desktop 更新后会覆盖资源文件；更新客户端后请重新运行安装脚本。
 
 ## 前提
 
@@ -20,7 +28,7 @@
 1. 下载本仓库（git clone 或 zip）
 2. 完全关闭 Claude Desktop
 3. 双击 `安装中文语言包.bat`，在管理员权限弹窗中点击「是」
-4. 安装完成后，在 Claude 设置中将语言切换为「中文（简体）」
+4. 安装完成后重启 Claude Desktop；如界面仍为英文，在 Claude 设置中将语言切换为「中文（简体）」
 
 ### macOS
 
@@ -118,7 +126,9 @@ check 检测项：回退（译文==原文）、缺失、纯英文、译文膨胀
 
 ## 常见问题
 
-**安装后界面没变中文**：确认 Claude 已重启，并在设置中手动切换语言为「中文（简体）」。
+**安装后界面没变中文**：确认 Claude 已完全退出并重新打开；如仍为英文，在设置中手动切换语言为「中文（简体）」。
+
+**提示未匹配到语言列表**：旧脚本只扫描 `index-*.js`，新版 Claude 可能把语言列表拆到其他 JS chunk。本仓库的 Windows 脚本已改为扫描全部前端 JS 文件。
 
 **脚本报权限错误**：Windows 需管理员权限；macOS 需要 `sudo`、`codesign`、`xattr`。
 

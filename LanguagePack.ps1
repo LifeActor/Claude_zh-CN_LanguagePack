@@ -197,9 +197,9 @@ function Patch-JsLanguage {
         return $false
     }
 
-    $jsFiles = Get-ChildItem -LiteralPath $assetsDir -Filter "index-*.js" -File -ErrorAction SilentlyContinue
+    $jsFiles = Get-ChildItem -LiteralPath $assetsDir -Filter "*.js" -File -ErrorAction SilentlyContinue
     if (-not $jsFiles) {
-        Write-Host "  [警告] 未找到 index-*.js，跳过 JS 补丁" -ForegroundColor Yellow
+        Write-Host "  [警告] 未找到前端 JS，跳过 JS 补丁" -ForegroundColor Yellow
         return $false
     }
 
@@ -228,7 +228,11 @@ function Patch-JsLanguage {
             continue
         }
 
-        Write-Host "  [警告] 未匹配到语言列表: $($jsFile.Name) (Claude 可能已更新)" -ForegroundColor Yellow
+        # 新版 Claude 会把语言白名单拆到非 index chunk；普通业务 chunk 不包含白名单是正常的。
+    }
+
+    if (-not $patched) {
+        Write-Host "  [警告] 未匹配到语言列表 (Claude 可能已更新)" -ForegroundColor Yellow
     }
 
     return $patched
@@ -245,7 +249,7 @@ function Unpatch-JsLanguage {
         return
     }
 
-    $jsFiles = Get-ChildItem -LiteralPath $assetsDir -Filter "index-*.js" -File -ErrorAction SilentlyContinue
+    $jsFiles = Get-ChildItem -LiteralPath $assetsDir -Filter "*.js" -File -ErrorAction SilentlyContinue
     # 只用正则移除，不依赖硬编码变量名
     $regexRemove = [regex]'((?:[\w$]+)=\[(?:"[^"]+",)+)"zh-CN"\]'
 
@@ -289,13 +293,17 @@ function Update-Config {
         [Parameter(Mandatory = $true)][string]$Locale
     )
 
-    $base = Join-Path ${env:LOCALAPPDATA} "Packages\Claude_pzs8sxrjxfjjc"
+    $packageBase = Join-Path ${env:LOCALAPPDATA} "Packages\Claude_pzs8sxrjxfjjc"
     $configPaths = @(
-        (Join-Path $base "LocalCache\Roaming\Claude\config.json"),
-        (Join-Path $base "LocalCache\Roaming\Claude-3p\config.json")
+        (Join-Path ${env:APPDATA} "Claude\config.json"),
+        (Join-Path ${env:APPDATA} "Claude-3p\config.json"),
+        (Join-Path ${env:LOCALAPPDATA} "Claude\config.json"),
+        (Join-Path ${env:LOCALAPPDATA} "Claude-3p\config.json"),
+        (Join-Path $packageBase "LocalCache\Roaming\Claude\config.json"),
+        (Join-Path $packageBase "LocalCache\Roaming\Claude-3p\config.json")
     )
 
-    foreach ($configPath in $configPaths) {
+    foreach ($configPath in ($configPaths | Select-Object -Unique)) {
         if (-not (Test-Path -LiteralPath $configPath -PathType Leaf)) {
             continue
         }
@@ -564,7 +572,7 @@ function Install-LanguagePack {
 
     $assetsDir = Join-Path $resolved.ResourcesPath "ion-dist\assets\v1"
     if (Test-Path -LiteralPath $assetsDir -PathType Container) {
-        Get-ChildItem -LiteralPath $assetsDir -Filter "index-*.js" -File -ErrorAction SilentlyContinue |
+        Get-ChildItem -LiteralPath $assetsDir -Filter "*.js" -File -ErrorAction SilentlyContinue |
             ForEach-Object { Grant-WriteAccess -Path $_.FullName }
     }
 
@@ -746,6 +754,15 @@ if ($NoRestart) {
 }
 if ($PauseAtEnd) {
     $scriptArgs += "-PauseAtEnd"
+}
+
+if ((-not (Test-IsAdministrator)) -and (-not $Extract)) {
+    if ($Uninstall) {
+        Update-Config -Locale "en-US"
+    }
+    else {
+        Update-Config -Locale "zh-CN"
+    }
 }
 
 Ensure-Administrator -Arguments $scriptArgs
