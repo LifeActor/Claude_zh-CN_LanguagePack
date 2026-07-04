@@ -1,9 +1,9 @@
 # Claude Desktop 简体中文语言包
-## 应该是全网深度校验独一份 - 2026-05-30 Claude 1.9659.2 (390d6c) 2026-05-28T21:50:01.000Z
+## 应该是全网深度校验独一份 - 2026-07-05 Claude Desktop 1.18286.0.0
 
 为 Claude Desktop（Windows / macOS）界面添加简体中文支持。
 
-本仓库由 [LifeActor](https://github.com/LifeActor) 在 [Pheo Hu](https://github.com/pheohu-42/Claude_zh-CN_LanguagePack) 的派生版本基础上迭代维护，原始语言包由 [RICK](https://linux.do/u/lbls888) 创建（[原帖](https://linux.do/t/topic/2040184)）。新增了基于 AI 的翻译工具链，支持对全量界面文案进行增量翻译与质量检查。
+本仓库由 [LifeActor](https://github.com/LifeActor) 在 [Pheo Hu](https://github.com/pheohu-42/Claude_zh-CN_LanguagePack) 的派生版本基础上迭代维护，原始语言包由 [RICK](https://linux.do/u/lbls888) 创建（[原帖](https://linux.do/t/topic/2040184)）。新增了基于 AI 的翻译工具链，支持对全量界面文案进行增量翻译、质量检查与安装前废弃 key 清理。
 
 <img width="75%" alt="image" src="https://github.com/user-attachments/assets/1b29619a-2b95-4968-b230-36c170627fc7" />
 
@@ -111,10 +111,15 @@ python translate_ai.py check all --fix        # 删除问题条目，下次翻�
 python translate_ai.py check all --no-log     # 不写日志
 python translate_ai.py check all --log-dir ./reports  # 自定义日志目录
 
-# 5. 重新运行安装脚本使更改生效
+# 5. 安装前清理旧版本残留 key
+python translate_ai.py clean all
+
+# 6. 重新运行安装脚本使更改生效
 ```
 
 check 检测项：回退（译文==原文）、缺失、纯英文、译文膨胀、ICU 结构不一致、占位符丢失/多余、HTML 标签丢失/多余、转义序列不匹配。品牌名、URL、路径、纯技术词等不需要翻译的条目会自动跳过，不计入问题。每次检查结果自动写入 `check-reports/` 目录（JSON 格式，含完整原文/译文对照）。
+
+`clean all` 会删除 `translated-zh-CN` 中存在、但当前 `translation-template` 已不存在的旧 key，避免把 Claude 旧版本已经弃用的文案安装到目标环境。
 
 ## 常见问题
 

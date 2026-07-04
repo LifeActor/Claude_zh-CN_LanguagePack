@@ -23,6 +23,7 @@ AI 翻译引擎
   python translate_ai.py check ion-dist
   python translate_ai.py check overrides
   python translate_ai.py check all           # 检查全部（同时写汇总日志）
+  python translate_ai.py clean all           # 清理译文中已被新版模板移除的旧 key
 
   --force        强制重新翻译（覆盖已有译文）
   --workers N    并发线程数（默认 10）
@@ -589,17 +590,16 @@ def _write_check_log(
     print(f"  [日志] 已写入 {log_path}")
 
 
-def check_translation(
-    name: str,
-    fix: bool = False,
-    log_dir: Path | None = None,
-) -> tuple[int, int, int, int, int]:
-    """检查译文质量，返回 (回退数, 缺失数, 纯英文数, 膨胀数, 深校错误数)。"""
+def _load_template_and_output(name: str) -> tuple[dict, Path]:
+    """返回指定目标的当前模板和译文输出路径。"""
     if name == "ion-dist":
-        part_files = sorted(PARTS_DIR.glob("zh-CN.part-*.json"))
-        template: dict = {}
-        for p in part_files:
-            template.update(load_json(p))
+        template_path = TEMPLATE_DIR / "ion-dist" / "zh-CN.json"
+        if template_path.exists():
+            template = load_json(template_path)
+        else:
+            template = {}
+            for p in sorted(PARTS_DIR.glob("zh-CN.part-*.json")):
+                template.update(load_json(p))
         output_path = TRANSLATED_DIR / "ion-dist" / "zh-CN.json"
     elif name == "overrides":
         template = load_json(OVERRIDES_TEMPLATE)
@@ -608,6 +608,34 @@ def check_translation(
         template = load_json(TEMPLATE_DIR / name / "zh-CN.json")
         output_path = TRANSLATED_DIR / name / "zh-CN.json"
 
+    return template, output_path
+
+
+def clean_obsolete_keys(name: str) -> int:
+    """删除译文中存在、但当前模板已不存在的旧 key，返回删除数量。"""
+    template, output_path = _load_template_and_output(name)
+    translated = load_json(output_path)
+
+    obsolete_keys = sorted(set(translated) - set(template))
+    if not obsolete_keys:
+        print(f"[{name}] 无废弃 key，跳过。")
+        return 0
+
+    cleaned = {k: v for k, v in translated.items() if k in template}
+    save_json(output_path, cleaned)
+
+    print(f"[{name}] 已清理 {len(obsolete_keys)} 个废弃 key → {output_path}")
+    print(f"  示例: {', '.join(obsolete_keys[:5])}")
+    return len(obsolete_keys)
+
+
+def check_translation(
+    name: str,
+    fix: bool = False,
+    log_dir: Path | None = None,
+) -> tuple[int, int, int, int, int]:
+    """检查译文质量，返回 (回退数, 缺失数, 纯英文数, 膨胀数, 深校错误数)。"""
+    template, output_path = _load_template_and_output(name)
     translated = load_json(output_path)
 
     fallback:     list[tuple[str, str, str]] = []
@@ -820,6 +848,23 @@ def main() -> None:
                     json.dump(summary, f, ensure_ascii=False, indent=2)
                     f.write("\n")
                 print(f"[汇总日志] 已写入 {summary_path}")
+        return
+
+    # clean 子命令：不需要 API 客户端，用于安装前清理旧版本残留 key
+    if target == "clean":
+        if len(args) < 2:
+            print("用法: python translate_ai.py clean <desktop-shell|statsig|ion-dist|overrides|all>")
+            sys.exit(1)
+        sub = args[1].lower()
+        targets = ["desktop-shell", "statsig", "ion-dist", "overrides"] if sub == "all" else [sub]
+        total_removed = 0
+        for t in targets:
+            if t not in ("desktop-shell", "statsig", "ion-dist", "overrides"):
+                print(f"未知清理目标: {t}")
+                sys.exit(1)
+            total_removed += clean_obsolete_keys(t)
+        if len(targets) > 1:
+            print(f"\n[汇总] 已清理 {total_removed} 个废弃 key")
         return
 
     client, model = get_client()
