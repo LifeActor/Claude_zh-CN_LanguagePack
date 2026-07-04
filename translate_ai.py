@@ -27,6 +27,7 @@ AI 翻译引擎
 
   --force        强制重新翻译（覆盖已有译文）
   --workers N    并发线程数（默认 10）
+  --batch-size N 每批翻译条数（默认 250，接口不稳时可降到 50）
   --fix          （仅 check）从译文中删除回退/纯英文条目，便于下次重译
   --log-dir DIR  （仅 check）日志输出目录（默认 check-reports/）
 """
@@ -338,22 +339,24 @@ _UNTRANSLATABLE_RE = re.compile(
     r"|[~/][\w./\-]+"                            # Unix 路径
     r"|[A-Z]:\\[\w\\./\-]+"                      # Windows 路径
     r"|\S+@\S+\.\S+"                             # 邮箱
-    r"|\*?\.?[\w\-]+\.[\w\-]+(?:/[\w\-./]*)?"   # 域名/通配符域名/文件名
+    r"|\*\.[A-Za-z0-9_.-]+"                      # 通配符域名
+    r"|\*?\.?[\w\-]+(?:\.[\w\-]+)+(?:/[\w\-./]*)?"  # 域名/通配符域名/文件名
     r"|[A-Z0-9_\-]+(?:\s[A-Z0-9_\-]+)*"         # 全大写缩写序列
-    r"|\{.+"                                     # 以占位符/ICU 开头的格式串
+    r"|[A-Za-z][\w.-]*(?:/[A-Za-z0-9_.-]+)+"    # owner/repo、CLIENT_ID/.default 等
+    r"|[A-Za-z]+(?:-[A-Za-z0-9]+)+"             # X-Header-Name、us-east-1 等
+    r"|[A-Za-z]+(?:[A-Z][A-Za-z0-9]*)+"         # toolName、BedrockInference 等
+    r"|[A-Za-z]+-\d+(?:\s\([^)]+\))?"           # Latin-1 (ISO-8859-1) 等
     r"|[+~]?\s*[A-Z]{2,}"                        # 税率标记（+ JCT 等）
     r"|©.+"                                      # 版权声明
     r"|\[\"[^\]]+\"\]"                           # JSON 数组字面量
-    r"|[a-z]+://\S+"                             # 自定义协议 URL（claude://...）
+    r"|[a-z]+://\S+(?:\s+\S+)*"                  # 自定义协议 URL（claude://...）
     r"|sk-[a-z]+-[…\w]+"                         # API key 示例
     r"|#[0-9A-Fa-f]{3,8}"                        # 颜色值
     r"|\d+\s*[xX×]\s*.+"                         # 数量×产品名
-    r"|\w+\s*\([^)]+\)"                          # 平台名（Linux (x64) 等）
+    r"|(?:Linux|Windows|macOS|Darwin|Intel)\s*\([^)]+\)"  # 平台名（Linux (x64) 等）
     r"|\d+\s+\w+\s+St,.+"                        # 街道地址
     r"|PO Box.+"                                 # 邮政信箱
-    r"|\w+[-–—]\s*\w+"                           # 终端标题（claude — zsh）
     r")",
-    re.IGNORECASE,
 )
 
 # 不需要翻译的完整词列表（品牌名、专有名词）
@@ -375,16 +378,30 @@ _BRAND_WORDS: frozenset[str] = frozenset({
     "value", "server", "name", "type", "status",         # 通用示例词
     "enterprise", "standard", "premium", "nonprofit",    # 套餐词（常与品牌组合）
     "labs", "research", "mini", "ship", "mythos",        # Claude 产品线
-    "for", "in", "of", "the", "and", "or", "with",      # 介词（品牌名组合中）
+    "for", "in", "of", "the", "and", "or", "with", "on", "as", "user", "your",  # 品牌/技术组合中的虚词
     "remote", "cli", "code", "desktop", "artifact",
     "sales", "academy", "slack", "teams",
     "x", "ci", "dd", "mm", "mtd", "wau", "roi",         # 缩写/指标
     "ebitda", "fcf", "gst", "jct", "p", "b", "s", "d", "e",
+    "v", "fps", "id", "ids",
     "prs", "ghe", "ble", "dxt",
     "conway", "clawdmart", "acme", "corp",               # 示例公司名
     "alex", "johnson",                                   # 示例人名
     "wireless", "headphones",                            # 示例产品名
     "mcp", "bash", "zsh",
+    "play", "cloud", "kms", "app", "store", "amazon", "ai",
+    "web", "services", "service", "key", "management",
+    "vertex", "drive", "office", "agents", "bedrock",
+    "max", "chat", "analytics", "workforce", "identity",
+    "idp", "oidc", "sts", "vault", "uri", "audience",
+    "foundry", "token", "bearer", "sans", "serif",
+    "alt", "space", "microsoft", "azure", "mac", "apple",
+    "silicon", "intel", "deb", "arm", "arm64", "x64",
+    "payload", "logo", "markdown", "subagents", "session",
+    "lens", "ultracode", "scrum", "master", "twitter",
+    "git", "vs", "wow", "fable", "growthbook", "calendar",
+    "apis", "youtuber", "latin", "gocspx", "nnn", "pr",
+    "messages",
 })
 
 
@@ -397,7 +414,7 @@ def _is_untranslatable(src: str) -> bool:
         return True
 
     # 正则快速匹配
-    if _UNTRANSLATABLE_RE.match(stripped):
+    if _UNTRANSLATABLE_RE.fullmatch(stripped):
         return True
 
     # 去掉标点/数字/空格后，所有词都是品牌/技术词
@@ -408,6 +425,11 @@ def _is_untranslatable(src: str) -> bool:
     # 含多个空格分隔的 token，且每个 token 都是 URL/路径/技术词
     # 处理 OAuth scope 字符串：'openid email https://...'
     tokens = stripped.split()
+    if len(tokens) >= 2 and all(re.fullmatch(r"[A-Za-z0-9_./-]+", t) for t in tokens) and any(
+        any(ch in t for ch in "_/.") for t in tokens
+    ):
+        return True
+
     if len(tokens) >= 2 and all(
         re.match(r"https?://\S+", t) or re.match(r"[\w\-]+(?:\.[\w\-]+)+", t)
         or re.match(r"[a-zA-Z_]+", t) and t.lower() in _BRAND_WORDS
@@ -727,7 +749,7 @@ def check_translation(
             print(f"    原文: {_fmt(src)}")
             print(f"    译文: {_fmt(tgt)}")
             for d in di:
-                print(f"    ✗   {d}")
+                print(f"    -   {d}")
 
     _preview_3(fallback, "回退")
     _preview_3(english_only, "纯英文")
@@ -778,6 +800,8 @@ def check_translation(
 
 
 def main() -> None:
+    global BATCH_SIZE
+
     args = sys.argv[1:]
     if not args:
         print(__doc__)
@@ -808,6 +832,14 @@ def main() -> None:
             print("--workers 需要指定数量，例如 --workers 10")
             sys.exit(1)
         workers = int(args[idx + 1])
+        args = args[:idx] + args[idx + 2:]
+
+    if "--batch-size" in args:
+        idx = args.index("--batch-size")
+        if idx + 1 >= len(args):
+            print("--batch-size 需要指定数量，例如 --batch-size 50")
+            sys.exit(1)
+        BATCH_SIZE = max(1, int(args[idx + 1]))
         args = args[:idx] + args[idx + 2:]
 
     target = args[0].lower()
