@@ -183,9 +183,9 @@ def patch_language_whitelist(app_path: Path) -> None:
     assets_dir = app_path / FRONTEND_ASSETS_REL
     require_directory(assets_dir, label="Frontend assets directory")
 
-    js_files = sorted(assets_dir.glob("index-*.js"))
+    js_files = sorted(assets_dir.glob("*.js"))
     if not js_files:
-        raise SystemExit(f"Could not find index-*.js under: {assets_dir}")
+        raise SystemExit(f"Could not find JavaScript files under: {assets_dir}")
 
     patched_files = 0
     already_registered = 0
@@ -498,7 +498,7 @@ def verify_translation_registration(app_path: Path) -> None:
     chinese_count = sum(1 for value in values if re.search(r"[\u4e00-\u9fff]", value))
     print(f"  Verified zh-CN frontend locale: {chinese_count}/{len(values)} string values contain Chinese")
 
-    js_files = sorted((app_path / FRONTEND_ASSETS_REL).glob("index-*.js"))
+    js_files = sorted((app_path / FRONTEND_ASSETS_REL).glob("*.js"))
     if not js_files:
         raise SystemExit("Could not re-check language whitelist after patching.")
 

@@ -197,9 +197,9 @@ function Patch-JsLanguage {
         return $false
     }
 
-    $jsFiles = Get-ChildItem -LiteralPath $assetsDir -Filter "index-*.js" -File -ErrorAction SilentlyContinue
+    $jsFiles = Get-ChildItem -LiteralPath $assetsDir -Filter "*.js" -File -ErrorAction SilentlyContinue
     if (-not $jsFiles) {
-        Write-Host "  [警告] 未找到 index-*.js，跳过 JS 补丁" -ForegroundColor Yellow
+        Write-Host "  [警告] 未找到 JS 文件，跳过 JS 补丁" -ForegroundColor Yellow
         return $false
     }
 
@@ -218,17 +218,18 @@ function Patch-JsLanguage {
             continue
         }
 
-        Backup-File -Path $jsFile.FullName -RelativeTo $ResourcesPath
-
         $newContent = $regexAdd.Replace($content, '$1,"zh-CN"]', 1)
         if ($newContent -ne $content) {
+            Backup-File -Path $jsFile.FullName -RelativeTo $ResourcesPath
             Write-Utf8File -Path $jsFile.FullName -Content $newContent
             Write-Host "  JS补丁已应用: $($jsFile.Name)"
             $patched = $true
             continue
         }
+    }
 
-        Write-Host "  [警告] 未匹配到语言列表: $($jsFile.Name) (Claude 可能已更新)" -ForegroundColor Yellow
+    if (-not $patched) {
+        Write-Host "  [警告] 未匹配到语言列表 (Claude 可能已更新)" -ForegroundColor Yellow
     }
 
     return $patched
@@ -245,7 +246,7 @@ function Unpatch-JsLanguage {
         return
     }
 
-    $jsFiles = Get-ChildItem -LiteralPath $assetsDir -Filter "index-*.js" -File -ErrorAction SilentlyContinue
+    $jsFiles = Get-ChildItem -LiteralPath $assetsDir -Filter "*.js" -File -ErrorAction SilentlyContinue
     # 只用正则移除，不依赖硬编码变量名
     $regexRemove = [regex]'((?:[\w$]+)=\[(?:"[^"]+",)+)"zh-CN"\]'
 
@@ -263,7 +264,6 @@ function Unpatch-JsLanguage {
         $content = [System.IO.File]::ReadAllText($jsFile.FullName)
 
         if (-not $content.Contains('"zh-CN"')) {
-            Write-Host "  无需恢复: $($jsFile.Name)"
             continue
         }
 
@@ -564,7 +564,7 @@ function Install-LanguagePack {
 
     $assetsDir = Join-Path $resolved.ResourcesPath "ion-dist\assets\v1"
     if (Test-Path -LiteralPath $assetsDir -PathType Container) {
-        Get-ChildItem -LiteralPath $assetsDir -Filter "index-*.js" -File -ErrorAction SilentlyContinue |
+        Get-ChildItem -LiteralPath $assetsDir -Filter "*.js" -File -ErrorAction SilentlyContinue |
             ForEach-Object { Grant-WriteAccess -Path $_.FullName }
     }
 
