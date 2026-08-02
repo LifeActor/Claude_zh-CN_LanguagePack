@@ -3,7 +3,8 @@ param(
     [switch]$Uninstall,
     [switch]$Extract,
     [switch]$NoRestart,
-    [switch]$PauseAtEnd
+    [switch]$PauseAtEnd,
+    [switch]$SkipAdmin
 )
 
 Set-StrictMode -Version Latest
@@ -118,6 +119,26 @@ function Get-ResourcesPath {
     }
 
     return $null
+}
+
+# 新版 Claude 把 statsig 目录改名为 dynamic，这里同时兼容两种结构
+function Resolve-DynamicDir {
+    param(
+        [Parameter(Mandatory = $true)][string]$ResourcesPath
+    )
+
+    $dynamicDir = Join-Path $ResourcesPath "ion-dist\i18n\dynamic"
+    if (Test-Path -LiteralPath $dynamicDir -PathType Container) {
+        return $dynamicDir
+    }
+
+    $statsigDir = Join-Path $ResourcesPath "ion-dist\i18n\statsig"
+    if (Test-Path -LiteralPath $statsigDir -PathType Container) {
+        return $statsigDir
+    }
+
+    # 都不存在时优先返回 dynamic（新版默认），安装步骤会按需创建
+    return $dynamicDir
 }
 
 function Grant-WriteAccess {
@@ -549,11 +570,12 @@ function Install-LanguagePack {
 
     Write-Host ""
     Write-Host "[2/5] 获取写入权限..."
+    $dynamicDir = Resolve-DynamicDir -ResourcesPath $resolved.ResourcesPath
     $pathsToGrant = @(
         $resolved.ResourcesPath,
         (Join-Path $resolved.ResourcesPath "ion-dist"),
         (Join-Path $resolved.ResourcesPath "ion-dist\i18n"),
-        (Join-Path $resolved.ResourcesPath "ion-dist\i18n\statsig"),
+        $dynamicDir,
         (Join-Path $resolved.ResourcesPath "ion-dist\assets"),
         (Join-Path $resolved.ResourcesPath "ion-dist\assets\v1")
     )
@@ -586,7 +608,7 @@ function Install-LanguagePack {
         [pscustomobject]@{
             Name   = "statsig"
             Source = $required[2].Path
-            Target = (Join-Path $resolved.ResourcesPath "ion-dist\i18n\statsig\zh-CN.json")
+            Target = (Join-Path $dynamicDir "zh-CN.json")
         }
     )
 
@@ -641,12 +663,16 @@ function Uninstall-LanguagePack {
 
     Write-Host ""
     Write-Host "[2/4] 删除翻译文件..."
+    # 兼容新旧两种目录名：dynamic（新版）和 statsig（旧版）
+    $dynamicCandidates = @(
+        (Join-Path $resolved.ResourcesPath "ion-dist\i18n\dynamic\zh-CN.json"),
+        (Join-Path $resolved.ResourcesPath "ion-dist\i18n\statsig\zh-CN.json")
+    )
     foreach ($path in @(
             (Join-Path $resolved.ResourcesPath "ion-dist\i18n\zh-CN.json"),
             (Join-Path $resolved.ResourcesPath "ion-dist\i18n\zh-CN.overrides.json"),
-            (Join-Path $resolved.ResourcesPath "zh-CN.json"),
-            (Join-Path $resolved.ResourcesPath "ion-dist\i18n\statsig\zh-CN.json")
-        )) {
+            (Join-Path $resolved.ResourcesPath "zh-CN.json")
+        ) + $dynamicCandidates) {
         if (Test-Path -LiteralPath $path -PathType Leaf) {
             Grant-WriteAccess -Path $path
             Remove-Item -LiteralPath $path -Force
@@ -685,10 +711,15 @@ function Extract-EnglishFiles {
 
     $enDir = Join-Path $scriptDir "extracted-en-US"
     $templateDir = Join-Path $scriptDir "translation-template"
+    # 兼容新版 dynamic 目录与旧版 statsig 目录
+    $dynamicEnSource = Join-Path $resolved.ResourcesPath "ion-dist\i18n\dynamic\en-US.json"
+    if (-not (Test-Path -LiteralPath $dynamicEnSource -PathType Leaf)) {
+        $dynamicEnSource = Join-Path $resolved.ResourcesPath "ion-dist\i18n\statsig\en-US.json"
+    }
     $targets = @(
         [pscustomobject]@{ Name = "ion-dist"; Source = (Join-Path $resolved.ResourcesPath "ion-dist\i18n\en-US.json") },
         [pscustomobject]@{ Name = "desktop-shell"; Source = (Join-Path $resolved.ResourcesPath "en-US.json") },
-        [pscustomobject]@{ Name = "statsig"; Source = (Join-Path $resolved.ResourcesPath "ion-dist\i18n\statsig\en-US.json") }
+        [pscustomobject]@{ Name = "statsig"; Source = $dynamicEnSource }
     )
 
     Write-Host ""
@@ -748,7 +779,9 @@ if ($PauseAtEnd) {
     $scriptArgs += "-PauseAtEnd"
 }
 
-Ensure-Administrator -Arguments $scriptArgs
+if (-not $SkipAdmin) {
+    Ensure-Administrator -Arguments $scriptArgs
+}
 
 $exitCode = 0
 try {
